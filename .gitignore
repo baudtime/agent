@@ -1,0 +1,10 @@
+.idea/
+
+*.exe
+*.log
+
+cmd/**/*prof*
+cmd/**/*lock
+
+
+/agent

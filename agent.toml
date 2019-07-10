@@ -1,0 +1,13 @@
+service_port = 80
+
+[inputs]
+  collect_frequency = "1s"
+  enabled = ["cpu", "diskio", "tcp"]
+
+[aggregators]
+  aggregate_frequency = "1s"
+  enabled = ["minmax"]
+
+[outputs]
+  batch_flush = 16
+  enabled = ["logger"]
