@@ -5,32 +5,28 @@ package libcontainer
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/opencontainers/runc/libcontainer/system"
 )
 
-func newRestoredProcess(pid int, fds []string) (*restoredProcess, error) {
-	var (
-		err error
-	)
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return nil, err
-	}
-	started, err := system.GetProcessStartTime(pid)
+func newRestoredProcess(cmd *exec.Cmd, fds []string) (*restoredProcess, error) {
+	var err error
+	pid := cmd.Process.Pid
+	stat, err := system.Stat(pid)
 	if err != nil {
 		return nil, err
 	}
 	return &restoredProcess{
-		proc:             proc,
-		processStartTime: started,
+		cmd:              cmd,
+		processStartTime: stat.StartTime,
 		fds:              fds,
 	}, nil
 }
 
 type restoredProcess struct {
-	proc             *os.Process
-	processStartTime string
+	cmd              *exec.Cmd
+	processStartTime uint64
 	fds              []string
 }
 
@@ -39,11 +35,11 @@ func (p *restoredProcess) start() error {
 }
 
 func (p *restoredProcess) pid() int {
-	return p.proc.Pid
+	return p.cmd.Process.Pid
 }
 
 func (p *restoredProcess) terminate() error {
-	err := p.proc.Kill()
+	err := p.cmd.Process.Kill()
 	if _, werr := p.wait(); err == nil {
 		err = werr
 	}
@@ -53,19 +49,22 @@ func (p *restoredProcess) terminate() error {
 func (p *restoredProcess) wait() (*os.ProcessState, error) {
 	// TODO: how do we wait on the actual process?
 	// maybe use --exec-cmd in criu
-	st, err := p.proc.Wait()
+	err := p.cmd.Wait()
 	if err != nil {
-		return nil, err
+		if _, ok := err.(*exec.ExitError); !ok {
+			return nil, err
+		}
 	}
+	st := p.cmd.ProcessState
 	return st, nil
 }
 
-func (p *restoredProcess) startTime() (string, error) {
+func (p *restoredProcess) startTime() (uint64, error) {
 	return p.processStartTime, nil
 }
 
 func (p *restoredProcess) signal(s os.Signal) error {
-	return p.proc.Signal(s)
+	return p.cmd.Process.Signal(s)
 }
 
 func (p *restoredProcess) externalDescriptors() []string {
@@ -76,12 +75,16 @@ func (p *restoredProcess) setExternalDescriptors(newFds []string) {
 	p.fds = newFds
 }
 
+func (p *restoredProcess) forwardChildLogs() chan error {
+	return nil
+}
+
 // nonChildProcess represents a process where the calling process is not
 // the parent process.  This process is created when a factory loads a container from
 // a persisted state.
 type nonChildProcess struct {
 	processPid       int
-	processStartTime string
+	processStartTime uint64
 	fds              []string
 }
 
@@ -101,7 +104,7 @@ func (p *nonChildProcess) wait() (*os.ProcessState, error) {
 	return nil, newGenericError(fmt.Errorf("restored process cannot be waited on"), SystemError)
 }
 
-func (p *nonChildProcess) startTime() (string, error) {
+func (p *nonChildProcess) startTime() (uint64, error) {
 	return p.processStartTime, nil
 }
 
@@ -119,4 +122,8 @@ func (p *nonChildProcess) externalDescriptors() []string {
 
 func (p *nonChildProcess) setExternalDescriptors(newFds []string) {
 	p.fds = newFds
+}
+
+func (p *nonChildProcess) forwardChildLogs() chan error {
+	return nil
 }

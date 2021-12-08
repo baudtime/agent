@@ -22,6 +22,7 @@ var actions = map[string]configs.Action{
 	"SCMP_ACT_TRAP":  configs.Trap,
 	"SCMP_ACT_ALLOW": configs.Allow,
 	"SCMP_ACT_TRACE": configs.Trace,
+	"SCMP_ACT_LOG":   configs.Log,
 }
 
 var archs = map[string]string{
@@ -36,6 +37,11 @@ var archs = map[string]string{
 	"SCMP_ARCH_MIPSEL":      "mipsel",
 	"SCMP_ARCH_MIPSEL64":    "mipsel64",
 	"SCMP_ARCH_MIPSEL64N32": "mipsel64n32",
+	"SCMP_ARCH_PPC":         "ppc",
+	"SCMP_ARCH_PPC64":       "ppc64",
+	"SCMP_ARCH_PPC64LE":     "ppc64le",
+	"SCMP_ARCH_S390":        "s390",
+	"SCMP_ARCH_S390X":       "s390x",
 }
 
 // ConvertStringToOperator converts a string into a Seccomp comparison operator.
@@ -43,7 +49,7 @@ var archs = map[string]string{
 // Attempting to convert a string that is not a valid operator results in an
 // error.
 func ConvertStringToOperator(in string) (configs.Operator, error) {
-	if op, ok := operators[in]; ok == true {
+	if op, ok := operators[in]; ok {
 		return op, nil
 	}
 	return 0, fmt.Errorf("string %s is not a valid operator for seccomp", in)
@@ -56,7 +62,7 @@ func ConvertStringToOperator(in string) (configs.Operator, error) {
 // Attempting to convert a string that is not a valid action results in an
 // error.
 func ConvertStringToAction(in string) (configs.Action, error) {
-	if act, ok := actions[in]; ok == true {
+	if act, ok := actions[in]; ok {
 		return act, nil
 	}
 	return 0, fmt.Errorf("string %s is not a valid action for seccomp", in)
@@ -64,7 +70,7 @@ func ConvertStringToAction(in string) (configs.Action, error) {
 
 // ConvertStringToArch converts a string into a Seccomp comparison arch.
 func ConvertStringToArch(in string) (string, error) {
-	if arch, ok := archs[in]; ok == true {
+	if arch, ok := archs[in]; ok {
 		return arch, nil
 	}
 	return "", fmt.Errorf("string %s is not a valid arch for seccomp", in)

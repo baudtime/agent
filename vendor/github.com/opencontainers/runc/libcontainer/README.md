@@ -1,3 +1,7 @@
+# libcontainer
+
+[![GoDoc](https://godoc.org/github.com/opencontainers/runc/libcontainer?status.svg)](https://godoc.org/github.com/opencontainers/runc/libcontainer)
+
 Libcontainer provides a native Go implementation for creating containers
 with namespaces, cgroups, capabilities, and filesystem access controls.
 It allows you to manage the lifecycle of the container performing additional operations
@@ -16,7 +20,14 @@ the current binary (/proc/self/exe) to be executed as the init process, and use
 arg "init", we call the first step process "bootstrap", so you always need a "init"
 function as the entry of "bootstrap".
 
+In addition to the go init function the early stage bootstrap is handled by importing
+[nsenter](https://github.com/opencontainers/runc/blob/master/libcontainer/nsenter/README.md).
+
 ```go
+import (
+	_ "github.com/opencontainers/runc/libcontainer/nsenter"
+)
+
 func init() {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		runtime.GOMAXPROCS(1)
@@ -45,24 +56,94 @@ Once you have an instance of the factory created we can create a configuration
 struct describing how the container is to be created. A sample would look similar to this:
 
 ```go
-defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
+defaultMountFlags := unix.MS_NOEXEC | unix.MS_NOSUID | unix.MS_NODEV
+var devices []*configs.DeviceRule
+for _, device := range specconv.AllowedDevices {
+	devices = append(devices, &device.Rule)
+}
 config := &configs.Config{
 	Rootfs: "/your/path/to/rootfs",
-	Capabilities: []string{
-		"CAP_CHOWN",
-		"CAP_DAC_OVERRIDE",
-		"CAP_FSETID",
-		"CAP_FOWNER",
-		"CAP_MKNOD",
-		"CAP_NET_RAW",
-		"CAP_SETGID",
-		"CAP_SETUID",
-		"CAP_SETFCAP",
-		"CAP_SETPCAP",
-		"CAP_NET_BIND_SERVICE",
-		"CAP_SYS_CHROOT",
-		"CAP_KILL",
-		"CAP_AUDIT_WRITE",
+	Capabilities: &configs.Capabilities{
+		Bounding: []string{
+			"CAP_CHOWN",
+			"CAP_DAC_OVERRIDE",
+			"CAP_FSETID",
+			"CAP_FOWNER",
+			"CAP_MKNOD",
+			"CAP_NET_RAW",
+			"CAP_SETGID",
+			"CAP_SETUID",
+			"CAP_SETFCAP",
+			"CAP_SETPCAP",
+			"CAP_NET_BIND_SERVICE",
+			"CAP_SYS_CHROOT",
+			"CAP_KILL",
+			"CAP_AUDIT_WRITE",
+		},
+		Effective: []string{
+			"CAP_CHOWN",
+			"CAP_DAC_OVERRIDE",
+			"CAP_FSETID",
+			"CAP_FOWNER",
+			"CAP_MKNOD",
+			"CAP_NET_RAW",
+			"CAP_SETGID",
+			"CAP_SETUID",
+			"CAP_SETFCAP",
+			"CAP_SETPCAP",
+			"CAP_NET_BIND_SERVICE",
+			"CAP_SYS_CHROOT",
+			"CAP_KILL",
+			"CAP_AUDIT_WRITE",
+		},
+		Inheritable: []string{
+			"CAP_CHOWN",
+			"CAP_DAC_OVERRIDE",
+			"CAP_FSETID",
+			"CAP_FOWNER",
+			"CAP_MKNOD",
+			"CAP_NET_RAW",
+			"CAP_SETGID",
+			"CAP_SETUID",
+			"CAP_SETFCAP",
+			"CAP_SETPCAP",
+			"CAP_NET_BIND_SERVICE",
+			"CAP_SYS_CHROOT",
+			"CAP_KILL",
+			"CAP_AUDIT_WRITE",
+		},
+		Permitted: []string{
+			"CAP_CHOWN",
+			"CAP_DAC_OVERRIDE",
+			"CAP_FSETID",
+			"CAP_FOWNER",
+			"CAP_MKNOD",
+			"CAP_NET_RAW",
+			"CAP_SETGID",
+			"CAP_SETUID",
+			"CAP_SETFCAP",
+			"CAP_SETPCAP",
+			"CAP_NET_BIND_SERVICE",
+			"CAP_SYS_CHROOT",
+			"CAP_KILL",
+			"CAP_AUDIT_WRITE",
+		},
+		Ambient: []string{
+			"CAP_CHOWN",
+			"CAP_DAC_OVERRIDE",
+			"CAP_FSETID",
+			"CAP_FOWNER",
+			"CAP_MKNOD",
+			"CAP_NET_RAW",
+			"CAP_SETGID",
+			"CAP_SETUID",
+			"CAP_SETFCAP",
+			"CAP_SETPCAP",
+			"CAP_NET_BIND_SERVICE",
+			"CAP_SYS_CHROOT",
+			"CAP_KILL",
+			"CAP_AUDIT_WRITE",
+		},
 	},
 	Namespaces: configs.Namespaces([]configs.Namespace{
 		{Type: configs.NEWNS},
@@ -71,23 +152,24 @@ config := &configs.Config{
 		{Type: configs.NEWPID},
 		{Type: configs.NEWUSER},
 		{Type: configs.NEWNET},
+		{Type: configs.NEWCGROUP},
 	}),
 	Cgroups: &configs.Cgroup{
 		Name:   "test-container",
 		Parent: "system",
 		Resources: &configs.Resources{
 			MemorySwappiness: nil,
-			AllowAllDevices:  false,
-			AllowedDevices:   configs.DefaultAllowedDevices,
+			Devices:          devices,
 		},
 	},
 	MaskPaths: []string{
 		"/proc/kcore",
+		"/sys/firmware",
 	},
 	ReadonlyPaths: []string{
 		"/proc/sys", "/proc/sysrq-trigger", "/proc/irq", "/proc/bus",
 	},
-	Devices:  configs.DefaultAutoCreatedDevices,
+	Devices:  specconv.AllowedDevices,
 	Hostname: "testing",
 	Mounts: []*configs.Mount{
 		{
@@ -100,14 +182,14 @@ config := &configs.Config{
 			Source:      "tmpfs",
 			Destination: "/dev",
 			Device:      "tmpfs",
-			Flags:       syscall.MS_NOSUID | syscall.MS_STRICTATIME,
+			Flags:       unix.MS_NOSUID | unix.MS_STRICTATIME,
 			Data:        "mode=755",
 		},
 		{
 			Source:      "devpts",
 			Destination: "/dev/pts",
 			Device:      "devpts",
-			Flags:       syscall.MS_NOSUID | syscall.MS_NOEXEC,
+			Flags:       unix.MS_NOSUID | unix.MS_NOEXEC,
 			Data:        "newinstance,ptmxmode=0666,mode=0620,gid=5",
 		},
 		{
@@ -127,7 +209,7 @@ config := &configs.Config{
 			Source:      "sysfs",
 			Destination: "/sys",
 			Device:      "sysfs",
-			Flags:       defaultMountFlags | syscall.MS_RDONLY,
+			Flags:       defaultMountFlags | unix.MS_RDONLY,
 		},
 	},
 	UidMappings: []configs.IDMap{
@@ -153,7 +235,7 @@ config := &configs.Config{
 	},
 	Rlimits: []configs.Rlimit{
 		{
-			Type: syscall.RLIMIT_NOFILE,
+			Type: unix.RLIMIT_NOFILE,
 			Hard: uint64(1025),
 			Soft: uint64(1025),
 		},
@@ -182,12 +264,13 @@ process := &libcontainer.Process{
 	Stdin:  os.Stdin,
 	Stdout: os.Stdout,
 	Stderr: os.Stderr,
+	Init:   true,
 }
 
-err := container.Start(process)
+err := container.Run(process)
 if err != nil {
-	logrus.Fatal(err)
 	container.Destroy()
+	logrus.Fatal(err)
 	return
 }
 
@@ -219,13 +302,22 @@ container.Resume()
 
 // send signal to container's init process.
 container.Signal(signal)
+
+// update container resource constraints.
+container.Set(config)
+
+// get current status of the container.
+status, err := container.Status()
+
+// get current container's state information.
+state, err := container.State()
 ```
 
 
 #### Checkpoint & Restore
 
 libcontainer now integrates [CRIU](http://criu.org/) for checkpointing and restoring containers.
-This let's you save the state of a process running inside a container to disk, and then restore
+This lets you save the state of a process running inside a container to disk, and then restore
 that state into a new process, on the same machine or on another machine.
 
 `criu` version 1.5.2 or higher is required to use checkpoint and restore.
@@ -236,6 +328,7 @@ generated when building libcontainer with docker.
 
 ## Copyright and license
 
-Code and documentation copyright 2014 Docker, inc. Code released under the Apache 2.0 license.
-Docs released under Creative commons.
-
+Code and documentation copyright 2014 Docker, inc.
+The code and documentation are released under the [Apache 2.0 license](../LICENSE).
+The documentation is also released under Creative Commons Attribution 4.0 International License.
+You may obtain a copy of the license, titled CC-BY-4.0, at http://creativecommons.org/licenses/by/4.0/.
