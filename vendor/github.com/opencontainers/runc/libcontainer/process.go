@@ -1,13 +1,15 @@
 package libcontainer
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"math"
 	"os"
 
 	"github.com/opencontainers/runc/libcontainer/configs"
 )
+
+var errInvalidProcess = errors.New("invalid process")
 
 type processOperations interface {
 	wait() (*os.ProcessState, error)
@@ -28,6 +30,10 @@ type Process struct {
 	// local to the container's user and group configuration.
 	User string
 
+	// AdditionalGroups specifies the gids that should be added to supplementary groups
+	// in addition to those that the user belongs to.
+	AdditionalGroups []string
+
 	// Cwd will change the processes current working directory inside the container's rootfs.
 	Cwd string
 
@@ -43,12 +49,13 @@ type Process struct {
 	// ExtraFiles specifies additional open files to be inherited by the container
 	ExtraFiles []*os.File
 
-	// consolePath is the path to the console allocated to the container.
-	consolePath string
+	// Initial sizings for the console
+	ConsoleWidth  uint16
+	ConsoleHeight uint16
 
 	// Capabilities specify the capabilities to keep when executing the process inside the container
 	// All capabilities not specified will be dropped from the processes capability mask
-	Capabilities []string
+	Capabilities *configs.Capabilities
 
 	// AppArmorProfile specifies the profile to apply to the process and is
 	// changed at the time the process is execed
@@ -64,14 +71,31 @@ type Process struct {
 	// If Rlimits are not set, the container will inherit rlimits from the parent process
 	Rlimits []configs.Rlimit
 
+	// ConsoleSocket provides the masterfd console.
+	ConsoleSocket *os.File
+
+	// Init specifies whether the process is the first process in the container.
+	Init bool
+
 	ops processOperations
+
+	LogLevel string
+
+	// SubCgroupPaths specifies sub-cgroups to run the process in.
+	// Map keys are controller names, map values are paths (relative to
+	// container's top-level cgroup).
+	//
+	// If empty, the default top-level container's cgroup is used.
+	//
+	// For cgroup v2, the only key allowed is "".
+	SubCgroupPaths map[string]string
 }
 
 // Wait waits for the process to exit.
 // Wait releases any resources associated with the Process
 func (p Process) Wait() (*os.ProcessState, error) {
 	if p.ops == nil {
-		return nil, newGenericError(fmt.Errorf("invalid process"), NoProcessOps)
+		return nil, errInvalidProcess
 	}
 	return p.ops.wait()
 }
@@ -81,7 +105,7 @@ func (p Process) Pid() (int, error) {
 	// math.MinInt32 is returned here, because it's invalid value
 	// for the kill() system call.
 	if p.ops == nil {
-		return math.MinInt32, newGenericError(fmt.Errorf("invalid process"), NoProcessOps)
+		return math.MinInt32, errInvalidProcess
 	}
 	return p.ops.pid(), nil
 }
@@ -89,7 +113,7 @@ func (p Process) Pid() (int, error) {
 // Signal sends a signal to the Process.
 func (p Process) Signal(sig os.Signal) error {
 	if p.ops == nil {
-		return newGenericError(fmt.Errorf("invalid process"), NoProcessOps)
+		return errInvalidProcess
 	}
 	return p.ops.signal(sig)
 }
@@ -99,23 +123,4 @@ type IO struct {
 	Stdin  io.WriteCloser
 	Stdout io.ReadCloser
 	Stderr io.ReadCloser
-}
-
-// NewConsole creates new console for process and returns it
-func (p *Process) NewConsole(rootuid int) (Console, error) {
-	console, err := NewConsole(rootuid, rootuid)
-	if err != nil {
-		return nil, err
-	}
-	p.consolePath = console.Path()
-	return console, nil
-}
-
-// ConsoleFromPath sets the process's console with the path provided
-func (p *Process) ConsoleFromPath(path string) error {
-	if p.consolePath != "" {
-		return newGenericError(fmt.Errorf("console path already exists for process"), ConsoleExists)
-	}
-	p.consolePath = path
-	return nil
 }
